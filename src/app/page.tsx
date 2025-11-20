@@ -192,19 +192,76 @@ export default function Home() {
         uploadedAt: new Date().toISOString(),
       });
 
-      {/* Try to process file w/ OCR and extract data */}
+      /* Try to process file w/ OCR and extract data */
       try{
         console.log("Processing...");
         const imageUrl = URL.createObjectURL(file); 
         const ocrText = await convertor(imageUrl); 
-        console.log("OCR Text: ", ocrText); 
+        console.log("OCR Text: ", ocrText);
+        
+        //Cleans up the temp URL to free memory  
         URL.revokeObjectURL(imageUrl); 
-        const processed = await mockProcessReceipt(file); 
-        processed.rawText = ocrText; 
-        setDraft(processed); 
-      } catch(error){
-        console.error("OCR error: ", error);
-        setError("Processing failed. Please try another image."); 
+        console.log("Sending OCR text to Groq for interpretation...");
+        const interpretResponse = await fetch('/api/interpret',{
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ ocrText }),
+        });
+        if(!interpretResponse.ok){
+          const errorData = await interpretResponse.json();
+          throw new Error(errorData.error || 'Failed to interpret receipt');
+        }
+        const interpretData = await interpretResponse.json(); 
+
+        if(!interpretData.success){
+          throw new Error(interpretData.error || 'Interpretation failed');
+        }
+        console.log("Groq interpretation successful: ", interpretData);
+        const groqData = interpretData.data; 
+        const mapPaymentMethod = (method: string) => {
+        const methodLower = method.toLowerCase();
+        const mapPaymentMethod = (method: string) => {
+          const methodLower = method.toLocaleLowerCase(); 
+          if (methodLower.includes('visa')) return 'Visa';
+          if (methodLower.includes('mastercard') || methodLower.includes('master card')) return 'Mastercard';
+          if (methodLower.includes('amex') || methodLower.includes('american express')) return 'Amex';
+          if (methodLower.includes('debit')) return 'Debit';
+          if (methodLower.includes('cash')) return 'Cash';
+          if (methodLower.includes('apple pay')) return 'Apple Pay';
+          if (methodLower.includes('google pay')) return 'Google Pay';
+          return 'Visa'; // Default fallback
+        };
+
+         // Create the draft with AI-interpreted data
+        setDraft({
+          store: groqData.vendor || "",
+          date: groqData.date || new Date().toISOString().slice(0, 10),
+          total: groqData.total || 0,
+          tax: groqData.tax || 0,
+          category: "", // User will select this manually
+          paymentMethod: mapPaymentMethod(groqData.paymentMethod),
+          items: groqData.items.map((item: any) => ({
+            id: item.id || makeItemId(), // Use Groq's ID or generate one
+            name: item.name || "",
+            quantity: item.quantity || 1,
+            price: item.price || 0,
+          })),
+          notes: `Uploaded: ${file.name}`,
+          summary: `AI interpretation completed with ${(groqData.confidence * 100).toFixed(0)}% confidence`,
+          emojiTag: undefined,
+          rawText: ocrText, // Store the original OCR text
+          confidence: groqData.confidence || 0,
+          taxConfidence: groqData.tax > 0 ? 0.85 : 0.5,
+          suggestions: groqData.confidence < 0.7 ? 
+            ["Low confidence detected - please verify all fields before saving"] : 
+            ["Data looks good! Review and save when ready"],
+        });
+      }
+    } catch(error){
+        console.error("Processing error: ", error);
+        setError(error instanceof Error ? error.message : "Processing failed. Please try another capture.");
     }
     finally{
       setIsProcessing(false); 
