@@ -18,7 +18,7 @@ import {
   mockProcessReceipt,
 } from "@/lib/receipts";
 import { useDropzone } from "react-dropzone";
-import convertor from "@/api/ocr/convertor";
+import convertor from "@/app/api/ocr/convertor";
 
 
 type PreferenceState = {
@@ -200,7 +200,7 @@ export default function Home() {
         console.log("OCR Text: ", ocrText); 
         URL.revokeObjectURL(imageUrl); 
         const processed = await mockProcessReceipt(file); 
-        processed.rawtext = ocrText; 
+        processed.rawText = ocrText; 
         setDraft(processed); 
       } catch(error){
         console.error("OCR error: ", error);
