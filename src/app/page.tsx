@@ -97,6 +97,7 @@ export default function Home() {
   const [isProcessing, setIsProcessing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [confirmReview, setConfirmReview] = useState(false);
+  const [loadingStage, setLoadingStage] = useState<string>(""); 
   const [preferences, setPreferences] = useState<PreferenceState>({
     insights: true,
     summaries: true,
@@ -194,14 +195,20 @@ export default function Home() {
 
       /* Try to process file w/ OCR and extract data */
       try{
-        console.log("Processing...");
+        //Uploading 
+        setLoadingStage("Uploading file...");
+        await new Promise(resolve => setTimeout(resolve, 800)); //Pausing for UX
+        
+        //OCR extraction
+        setLoadingStage("Extracting text from receipt..."); 
         const imageUrl = URL.createObjectURL(file); 
         const ocrText = await convertor(imageUrl); 
-        console.log("OCR Text: ", ocrText);
         
         //Cleans up the temp URL to free memory  
-        URL.revokeObjectURL(imageUrl); 
-        console.log("Sending OCR text to Groq for interpretation...");
+        URL.revokeObjectURL(imageUrl);
+        
+        //AI Interpretation 
+        setLoadingStage("Processing receipt with AI..."); 
         const interpretResponse = await fetch('/api/interpret',{
           method: 'POST',
           headers: {
@@ -232,7 +239,10 @@ export default function Home() {
           return 'Visa'; // Default fallback
         };
 
-         // Create the draft with AI-interpreted data
+         // Create the draft with AI-interpreted data (i.e populating form)
+         setLoadingStage("Populating form fields..."); 
+        await new Promise(resolve => setTimeout(resolve, 200));
+
         setDraft({
           store: groqData.vendor || "",
           date: groqData.date || new Date().toISOString().slice(0, 10),
@@ -528,6 +538,23 @@ export default function Home() {
                           />
                     </svg>
                   </div>
+                   {/* Loading Stage Indicator */}
+                    {isProcessing && loadingStage && (
+                      <div 
+                        className="mt-4 rounded-2xl border border-emerald-300/40 bg-emerald-400/10 p-4 animate-in fade-in slide-in-from-top-2 duration-300"
+                        style={{
+                          animation: 'fadeIn 300ms ease-in-out'
+                        }}
+                      >
+                        <div className="flex flex-col items-center justify-center gap-3">
+                          <div className="h-8 w-8 animate-spin rounded-full border-3 border-emerald-400 border-t-transparent"></div>
+                          <span className="text-sm font-medium text-emerald-100">
+                            {loadingStage}
+                          </span>
+                        </div>
+                      </div>
+                    )}
+
 
   
   <span className="text-base font-semibold text-emerald-100">
