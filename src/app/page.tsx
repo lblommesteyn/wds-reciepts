@@ -201,12 +201,14 @@ export default function Home() {
         await new Promise(resolve => setTimeout(resolve, 800)); //Pausing for UX
         
         //OCR extraction
-        setLoadingStage("Extracting text from receipt..."); 
-        const imageUrl = URL.createObjectURL(file); 
-        const ocrText = await convertor(imageUrl); 
-        
-        //Cleans up the temp URL to free memory  
-        URL.revokeObjectURL(imageUrl);
+        setLoadingStage(
+          file.type === 'application/pdf' 
+            ? "Extracting text from PDF pages..." 
+            : "Extracting text from receipt..."
+        );
+        console.log("Starting OCR processing...");
+        const ocrText = await convertor(file); // Pass file directly instead of URL
+        console.log("OCR Text:", ocrText);
         
         //AI Interpretation 
         setLoadingStage("Processing receipt with AI..."); 
