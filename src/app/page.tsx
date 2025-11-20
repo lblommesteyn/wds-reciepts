@@ -19,6 +19,7 @@ import {
 } from "@/lib/receipts";
 import { useDropzone } from "react-dropzone";
 import convertor from "@/app/api/ocr/convertor";
+import { generateCSV, downloadCSV } from "@/lib/csvExport";
 
 
 type PreferenceState = {
@@ -401,6 +402,17 @@ export default function Home() {
     setUploadMeta({});
     setError(null);
   };
+
+  const handleDownloadCSV = () => {
+  if (!draft.store.trim() || draft.total <= 0) {
+    setError("Please populate receipt data before downloading CSV.");
+    return;
+  }
+
+  const csvContent = generateCSV(draft);
+  const filename = `receipt_${draft.store.replace(/[^a-z0-9]/gi, '_')}_${draft.date}.csv`;
+  downloadCSV(csvContent, filename);
+};
 
   const toggleFavorite = (id: string) => {
     setHistory((prev) =>
@@ -882,27 +894,44 @@ export default function Home() {
                 </div>
               )}
 
-              <div className="mt-6 flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-white/5 bg-black/40 p-4">
-                <label className="flex items-center gap-3 text-sm text-slate-200">
-                  <input
-                    type="checkbox"
-                    checked={confirmReview}
-                    onChange={(event) => setConfirmReview(event.target.checked)}
-                    className="h-4 w-4 rounded border border-white/30 bg-transparent accent-emerald-400"
-                  />
-                  I reviewed the fields above.
-                </label>
-                <button
-                  type="button"
-                  onClick={handleSaveReceipt}
-                  disabled={
-                    !confirmReview || !draft.store.trim() || draft.total <= 0
-                  }
-                  className="rounded-2xl bg-emerald-400/90 px-6 py-3 text-sm font-semibold text-emerald-950 transition hover:bg-emerald-300 disabled:cursor-not-allowed disabled:bg-emerald-400/30"
-                >
-                  Save to history
-                </button>
-              </div>
+          <div className="mt-6 flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-white/5 bg-black/40 p-4">
+            <label className="flex items-center gap-3 text-sm text-slate-200">
+              <input
+                type="checkbox"
+                checked={confirmReview}
+                onChange={(event) => setConfirmReview(event.target.checked)}
+                className="h-4 w-4 rounded border border-white/30 bg-transparent accent-emerald-400"
+              />
+              I reviewed the fields above.
+            </label>
+            
+            <div className="flex gap-3">
+              {/* Download CSV Button */}
+             <button
+                type="button"
+                onClick={handleDownloadCSV}
+                disabled={!draft.store.trim() || draft.total <= 0}
+                className="flex items-center gap-2 rounded-2xl border border-emerald-400/50 bg-emerald-400/10 px-6 py-3 text-sm font-semibold text-emerald-200 transition hover:bg-emerald-400/20 disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                </svg>
+                Download CSV
+              </button>
+              
+              {/* Save to History Button */}
+              <button
+                type="button"
+                onClick={handleSaveReceipt}
+                disabled={
+                  !confirmReview || !draft.store.trim() || draft.total <= 0
+                }
+                className="rounded-2xl bg-emerald-400/90 px-6 py-3 text-sm font-semibold text-emerald-950 transition hover:bg-emerald-300 disabled:cursor-not-allowed disabled:bg-emerald-400/30"
+              >
+                Save to history
+              </button>
+            </div>
+          </div>
             </div>
 
             {error && (
