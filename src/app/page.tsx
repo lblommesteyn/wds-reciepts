@@ -29,6 +29,7 @@ type PreferenceState = {
 
 type FilterState = {
   query: string;
+  store: string;
   category: string;
   favoritesOnly: boolean;
   pinnedOnly: boolean;
@@ -106,6 +107,7 @@ export default function Home() {
   });
   const [filters, setFilters] = useState<FilterState>({
     query: "",
+    store: "all",
     category: "all",
     favoritesOnly: false,
     pinnedOnly: false,
@@ -151,9 +153,18 @@ export default function Home() {
     [history],
   );
 
+  const storeOptions = useMemo(() => {
+    const stores = new Set<string>();
+    sortedHistory.forEach((receipt) => stores.add(receipt.store));
+    return Array.from(stores).sort((a, b) => a.localeCompare(b));
+  }, [sortedHistory]);
+
   const filteredHistory = useMemo(() => {
     const query = filters.query.trim().toLowerCase();
     return sortedHistory.filter((receipt) => {
+      if (filters.store !== "all" && receipt.store !== filters.store) {
+        return false;
+      }
       if (filters.category !== "all" && receipt.category !== filters.category) {
         return false;
       }
@@ -1021,52 +1032,66 @@ const handleDownloadAllCSV = () => {
                       }
                       className={`rounded-full px-3 py-1 ${
                         filters.pinnedOnly
-                          ? "bg-sky-400/20 text-sky-100"
-                          : "bg-white/10 text-slate-400"
-                      }`}
+                      ? "bg-sky-400/20 text-sky-100"
+                      : "bg-white/10 text-slate-400"
+                  }`}
                     >
                       Pinned
                     </button>
                   </div>
                 </div>
-                <input
-                  value={filters.query}
-                  onChange={(event) =>
-                    setFilters((prev) => ({ ...prev, query: event.target.value }))
-                  }
-                  placeholder="Search by store, category, or item"
-                  className="w-full rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-sm text-white outline-none focus:border-emerald-300/70"
-                />
-                <div className="flex flex-wrap gap-2 text-xs">
-                  <button
-                    type="button"
-                    onClick={() =>
-                      setFilters((prev) => ({ ...prev, category: "all" }))
-                    }
-                    className={`rounded-full px-3 py-1 ${
-                      filters.category === "all"
-                        ? "bg-emerald-400/20 text-emerald-100"
-                        : "bg-white/10 text-slate-400"
-                    }`}
-                  >
-                    All categories
-                  </button>
-                  {CATEGORY_OPTIONS.map((category) => (
-                    <button
-                      type="button"
-                      key={category}
-                      onClick={() =>
-                        setFilters((prev) => ({ ...prev, category }))
+                <div className="grid gap-3 md:grid-cols-2">
+                  <label className="space-y-2 text-sm md:col-span-2">
+                    <span className="text-slate-300">Search</span>
+                    <input
+                      value={filters.query}
+                      onChange={(event) =>
+                        setFilters((prev) => ({
+                          ...prev,
+                          query: event.target.value,
+                        }))
                       }
-                      className={`rounded-full px-3 py-1 ${
-                        filters.category === category
-                          ? "bg-emerald-400/20 text-emerald-100"
-                          : "bg-white/10 text-slate-400"
-                      }`}
+                      placeholder="Search by store, category, or item"
+                      className="w-full rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-sm text-white outline-none focus:border-emerald-300/70"
+                    />
+                  </label>
+                  <label className="space-y-2 text-sm">
+                    <span className="text-slate-300">Store</span>
+                    <select
+                      value={filters.store}
+                      onChange={(event) =>
+                        setFilters((prev) => ({ ...prev, store: event.target.value }))
+                      }
+                      className="w-full rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-sm text-white outline-none focus:border-emerald-300/70"
                     >
-                      {category}
-                    </button>
-                  ))}
+                      <option value="all">All stores</option>
+                      {storeOptions.map((store) => (
+                        <option key={store} value={store}>
+                          {store}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="space-y-2 text-sm">
+                    <span className="text-slate-300">Category</span>
+                    <select
+                      value={filters.category}
+                      onChange={(event) =>
+                        setFilters((prev) => ({
+                          ...prev,
+                          category: event.target.value,
+                        }))
+                      }
+                      className="w-full rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-sm text-white outline-none focus:border-emerald-300/70"
+                    >
+                      <option value="all">All categories</option>
+                      {CATEGORY_OPTIONS.map((category) => (
+                        <option key={category} value={category}>
+                          {category}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
                 </div>
               </div>
 
@@ -1290,4 +1315,3 @@ const handleDownloadAllCSV = () => {
     </div>
   );
 }
-
