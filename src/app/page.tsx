@@ -15,7 +15,6 @@ import {
   emptyReceiptDraft,
   formatCurrency,
   formatDisplayDate,
-  mockProcessReceipt,
 } from "@/lib/receipts";
 import { useDropzone } from "react-dropzone";
 import convertor from "@/app/api/ocr/convertor";
@@ -163,7 +162,6 @@ const generateTaxSuggestions = (
   return suggestions;
 };
 
-
 type PreferenceState = {
   insights: boolean;
   summaries: boolean;
@@ -233,6 +231,7 @@ const calcMonthSpend = (receipts: Receipt[]) => {
 
 const fileAccept =
   ".pdf, image/png, image/jpeg, image/heic, application/pdf, image/heif";
+const RECEIPTS_STORAGE_KEY = "receipts_v1";
 
 export default function Home() {
   const [history, setHistory] = useState<Receipt[]>([]);
@@ -271,6 +270,35 @@ export default function Home() {
   const [selectedReceiptId, setSelectedReceiptId] = useState(
     SAMPLE_RECEIPTS[0]?.id ?? "",
   );
+  const [hasHydrated, setHasHydrated] = useState(false);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+    const stored = window.localStorage.getItem(RECEIPTS_STORAGE_KEY);
+    if (stored) {
+      try {
+        const parsed = JSON.parse(stored);
+        if (Array.isArray(parsed)) {
+          setHistory(parsed as Receipt[]);
+        }
+      } catch (err) {
+        console.error("Failed to parse stored receipts", err);
+      }
+    }
+    setHasHydrated(true);
+  }, []);
+
+  useEffect(() => {
+    if (!hasHydrated || typeof window === "undefined") {
+      return;
+    }
+    window.localStorage.setItem(
+      RECEIPTS_STORAGE_KEY,
+      JSON.stringify(history),
+    );
+  }, [history, hasHydrated]);
 
   const sortedHistory = useMemo(
     () =>
@@ -1530,5 +1558,4 @@ const handleDownloadAllCSV = () => {
     </div>
   );
 }
-
 
