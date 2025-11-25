@@ -20,12 +20,154 @@ import { useDropzone } from "react-dropzone";
 import convertor from "@/app/api/ocr/convertor";
 import { generateCSV, downloadCSV } from "@/lib/csvExport";
 import { generateBulkCSV } from "@/lib/csvExport";
+import Link from "next/link";
+
+/**
+ * Calculate tax detection confidence based on multiple factors
+ */
+const calculateTaxConfidence = (
+  interpretData: any,
+  ocrText: string
+): number => {
+  let confidence = 0;
+  const factors = [];
+
+  // Factor 1: Tax was explicitly found (40% weight)
+  if (interpretData.tax > 0) {
+    confidence += 0.4;
+    factors.push("Tax amount identified");
+  }
+
+  // Factor 2: Subtotal exists and makes sense (20% weight)
+  if (interpretData.subtotal > 0) {
+    const calculatedTotal = interpretData.subtotal + interpretData.tax;
+    const difference = Math.abs(calculatedTotal - interpretData.total);
+    
+    // If calculated total matches within $0.50 of actual total
+    if (difference < 0.5) {
+      confidence += 0.2;
+      factors.push("Subtotal + tax matches total");
+    } else if (difference < 2) {
+      confidence += 0.1;
+      factors.push("Subtotal + tax approximately matches");
+    }
+  }
+
+  // Factor 3: OCR text contains tax-related keywords (15% weight)
+  const taxKeywords = [
+    /\btax\b/i,
+    /\bTAX\b/,
+    /\bGST\b/i,
+    /\bPST\b/i,
+    /\bHST\b/i,
+    /\bVAT\b/i,
+    /sales tax/i,
+  ];
+  
+  const keywordsFound = taxKeywords.filter(regex => regex.test(ocrText));
+  if (keywordsFound.length > 0) {
+    confidence += 0.15;
+    factors.push(`Found ${keywordsFound.length} tax keyword(s)`);
+  }
+
+  // Factor 4: Tax rate seems reasonable (15% weight)
+  if (interpretData.tax > 0 && interpretData.subtotal > 0) {
+    const taxRate = (interpretData.tax / interpretData.subtotal) * 100;
+    
+    // Reasonable tax rates: 3% - 20% (covers most jurisdictions)
+    if (taxRate >= 3 && taxRate <= 20) {
+      confidence += 0.15;
+      factors.push(`Tax rate ${taxRate.toFixed(1)}% is reasonable`);
+    } else if (taxRate > 0 && taxRate < 3) {
+      confidence += 0.05;
+      factors.push(`Low tax rate detected`);
+    }
+  }
+
+  // Factor 5: Items total up correctly (10% weight)
+  if (interpretData.items && interpretData.items.length > 0) {
+    const itemsTotal = interpretData.items.reduce(
+      (sum: number, item: any) => sum + (item.price || 0),
+      0
+    );
+    
+    // Check if items total matches subtotal or is close to total
+    const matchesSubtotal = Math.abs(itemsTotal - interpretData.subtotal) < 1;
+    const matchesTotal = Math.abs(itemsTotal - interpretData.total) < 1;
+    
+    if (matchesSubtotal) {
+      confidence += 0.1;
+      factors.push("Line items match subtotal");
+    } else if (matchesTotal && interpretData.tax === 0) {
+      confidence += 0.05;
+      factors.push("Line items match total (no tax found)");
+    }
+  }
+
+  console.log("Tax detection factors:", factors);
+  console.log(`Tax detection confidence: ${(confidence * 100).toFixed(1)}%`);
+
+  return Math.min(confidence, 1); // Cap at 100%
+};
+
+const generateTaxSuggestions = (
+  groqData: any,
+  taxConfidence: number,
+  ocrText: string
+): string[] => {
+  const suggestions: string[] = [];
+
+  // Low overall confidence
+  if (groqData.confidence < 0.7) {
+    suggestions.push("⚠️ Low OCR confidence detected - please verify all fields before saving");
+  }
+
+  // Tax-specific suggestions
+  if (taxConfidence < 0.5) {
+    suggestions.push("💡 Tax detection confidence is low - please verify tax amount manually");
+  } else if (taxConfidence < 0.7) {
+    suggestions.push("⚡ Tax was detected but may need verification");
+  }
+
+  // No tax found
+  if (groqData.tax === 0) {
+    suggestions.push("ℹ️ No tax found on receipt - verify if this is correct");
+  }
+
+  // Subtotal missing
+  if (groqData.subtotal === 0 && groqData.tax > 0) {
+    suggestions.push("📝 Subtotal not found - only total and tax were detected");
+  }
+
+  // Items don't add up
+  if (groqData.items && groqData.items.length > 0) {
+    const itemsTotal = groqData.items.reduce(
+      (sum: number, item: any) => sum + (item.price || 0),
+      0
+    );
+    const difference = Math.abs(itemsTotal - groqData.total);
+    
+    if (difference > 2) {
+      suggestions.push(`⚠️ Line items total ($${itemsTotal.toFixed(2)}) differs from receipt total - please review`);
+    }
+  }
+
+  // Good detection
+  if (groqData.confidence >= 0.85 && taxConfidence >= 0.8) {
+    suggestions.push("✅ Data looks good! Review and save when ready");
+  } else if (suggestions.length === 0) {
+    suggestions.push("👀 Please review all fields before saving");
+  }
+
+  return suggestions;
+};
 
 type PreferenceState = {
   insights: boolean;
   summaries: boolean;
   emoji: boolean;
 };
+
 
 type FilterState = {
   query: string;
@@ -92,7 +234,7 @@ const fileAccept =
 const RECEIPTS_STORAGE_KEY = "receipts_v1";
 
 export default function Home() {
-  const [history, setHistory] = useState<Receipt[]>(SAMPLE_RECEIPTS);
+  const [history, setHistory] = useState<Receipt[]>([]);
   const [draft, setDraft] = useState<ReceiptDraft>(emptyReceiptDraft());
   const [uploadMeta, setUploadMeta] = useState<UploadMeta>({});
   const [isProcessing, setIsProcessing] = useState(false);
@@ -104,6 +246,21 @@ export default function Home() {
     summaries: true,
     emoji: true,
   });
+  useEffect(() => {
+  // TODO: Replace with database fetch
+  //THIS IS CURRENTLY A TEMP LOCAL STORAGE 
+  if (typeof window !== "undefined") {
+    const stored = localStorage.getItem("receiptHistory");
+    if (stored) {
+      try {
+        const parsed = JSON.parse(stored);
+        setHistory(parsed);
+      } catch (e) {
+        console.error("Failed to load history from storage");
+      }
+    }
+  }
+}, []);
   const [filters, setFilters] = useState<FilterState>({
     query: "",
     category: "all",
@@ -259,6 +416,39 @@ export default function Home() {
         }
         console.log("Groq interpretation successful: ", interpretData);
         const groqData = interpretData.data; 
+        const taxConfidence = calculateTaxConfidence(groqData, ocrText);
+
+        // STAGE 4: Generate AI summary if enabled
+      let aiSummary = `AI interpretation completed with ${(groqData.confidence * 100).toFixed(0)}% confidence`;
+
+      if (preferences.summaries) {
+        try {
+          setLoadingStage("Generating AI summary...");
+          console.log("Generating AI summary for receipt...");
+          
+          const summaryResponse = await fetch('/api/summarize', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              type: 'single',
+              receipt: groqData,
+            }),
+          });
+
+          if (summaryResponse.ok) {
+            const summaryData = await summaryResponse.json();
+            if (summaryData.success && summaryData.summary) {
+              aiSummary = summaryData.summary;
+              console.log("AI summary generated:", aiSummary);
+            }
+          }
+        } catch (summaryError) {
+          console.error("Failed to generate AI summary:", summaryError);
+          // Keep default summary if AI summary fails
+        }
+}
         const mapPaymentMethod = (method: string) => {
           const methodLower = method.toLocaleLowerCase(); 
           if (methodLower.includes('visa')) return 'Visa';
@@ -276,28 +466,26 @@ export default function Home() {
         await new Promise(resolve => setTimeout(resolve, 200));
 
         setDraft({
-          store: groqData.vendor || "",
-          date: groqData.date || new Date().toISOString().slice(0, 10),
-          total: groqData.total || 0,
-          tax: groqData.tax || 0,
-          category: "", // User will select this manually
-          paymentMethod: mapPaymentMethod(groqData.paymentMethod),
-          items: groqData.items.map((item: any) => ({
-            id: item.id || makeItemId(), // Use Groq's ID or generate one
-            name: item.name || "",
-            quantity: item.quantity || 1,
-            price: item.price || 0,
-          })),
-          notes: `Uploaded: ${file.name}`,
-          summary: `AI interpretation completed with ${(groqData.confidence * 100).toFixed(0)}% confidence`,
-          emojiTag: undefined,
-          rawText: ocrText, // Store the original OCR text
-          confidence: groqData.confidence || 0,
-          taxConfidence: groqData.tax > 0 ? 0.85 : 0.5,
-          suggestions: groqData.confidence < 0.7 ? 
-            ["Low confidence detected - please verify all fields before saving"] : 
-            ["Data looks good! Review and save when ready"],
-        });
+            store: groqData.vendor || "",
+            date: groqData.date || new Date().toISOString().slice(0, 10),
+            total: groqData.total || 0,
+            tax: groqData.tax || 0,
+            category: "",
+            paymentMethod: mapPaymentMethod(groqData.paymentMethod),
+            items: groqData.items.map((item: any) => ({
+              id: item.id || makeItemId(),
+              name: item.name || "",
+              quantity: item.quantity || 1,
+              price: item.price || 0,
+            })),
+            notes: `Uploaded: ${file.name}`,
+            summary: aiSummary,
+            emojiTag: undefined,
+            rawText: ocrText,
+            confidence: groqData.confidence || 0,
+            taxConfidence: taxConfidence, // ← USE THE CALCULATED VALUE
+            suggestions: generateTaxSuggestions(groqData, taxConfidence, ocrText), // ← USE THE FUNCTION
+          });
     } catch(error){
         console.error("Processing error: ", error);
         setError(error instanceof Error ? error.message : "Processing failed. Please try another capture.");
@@ -339,6 +527,52 @@ export default function Home() {
       ),
     [draft.items],
   );
+
+  const handleFileChange = async (
+    event: React.ChangeEvent<HTMLInputElement>,
+  ) => {
+    const file = event.target.files?.[0];
+    if (!file) {
+      return;
+    }
+    setError(null);
+    setIsProcessing(true);
+    setConfirmReview(false);
+    setUploadMeta({
+      name: file.name,
+      size: file.size,
+      uploadedAt: new Date().toISOString(),
+    });
+
+    try {
+      const processed = await mockProcessReceipt(file);
+      setDraft(processed);
+    } catch {
+      setError("Processing failed. Please try another capture.");
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  const deleteReceipt = (id: string) => {
+  if (confirm("Are you sure you want to delete this receipt?")) {
+    setHistory((prev) => {
+      const updated = prev.filter((receipt) => receipt.id !== id);
+      
+      // Update localStorage
+      if (typeof window !== "undefined") {
+        localStorage.setItem("receiptHistory", JSON.stringify(updated));
+      }
+      
+      return updated;
+    });
+    
+    // Clear selection if deleted receipt was selected
+    if (selectedReceiptId === id) {
+      setSelectedReceiptId("");
+    }
+  }
+};
 
   const handleItemChange = (
     index: number,
@@ -392,21 +626,34 @@ export default function Home() {
   };
 
   const handleSaveReceipt = () => {
-    if (!confirmReview) {
-      return;
+  if (!confirmReview) {
+    return;
+  }
+  if (!draft.store.trim() || draft.total <= 0) {
+    setError("Store name and total are required to save.");
+    return;
+  }
+  const newReceipt = createReceiptFromDraft(draft);
+  
+  // Update state
+  setHistory((prev) => {
+    const updated = [newReceipt, ...prev];
+    
+    // TODO: When database is ready, replace with API call
+    // Temporary: Save to localStorage
+    if (typeof window !== "undefined") {
+      localStorage.setItem("receiptHistory", JSON.stringify(updated));
     }
-    if (!draft.store.trim() || draft.total <= 0) {
-      setError("Store name and total are required to save.");
-      return;
-    }
-    const newReceipt = createReceiptFromDraft(draft);
-    setHistory((prev) => [newReceipt, ...prev]);
-    setSelectedReceiptId(newReceipt.id);
-    setDraft(emptyReceiptDraft());
-    setConfirmReview(false);
-    setUploadMeta({});
-    setError(null);
-  };
+    
+    return updated;
+  });
+  
+  setSelectedReceiptId(newReceipt.id);
+  setDraft(emptyReceiptDraft());
+  setConfirmReview(false);
+  setUploadMeta({});
+  setError(null);
+};
 
   const handleDownloadCSV = () => {
   if (!draft.store.trim() || draft.total <= 0) {
@@ -488,7 +735,7 @@ const handleDownloadAllCSV = () => {
                 Capture, verify, and save every receipt in seconds.
               </h1>
               <p className="mt-2 max-w-2xl text-lg text-slate-300">
-                Upload paper or digital proof, let OCR + GPT-4o-mini interpret
+                Upload paper or digital proof, let OCR + llama 3.3 interpret
                 it, and store structured data for lightning-fast search.
               </p>
             </div>
@@ -1109,40 +1356,61 @@ const handleDownloadAllCSV = () => {
                       </div>
                     </div>
                     <div className="mt-3 flex items-center justify-between text-xs text-slate-400">
-                      <div className="flex items-center gap-2">
-                        <button
-                          type="button"
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            toggleFavorite(receipt.id);
-                          }}
-                          className={`rounded-full border px-2 py-0.5 ${
-                            receipt.favorite
-                              ? "border-amber-300/50 text-amber-200"
-                              : "border-white/10 text-slate-400"
-                          }`}
-                        >
-                          ?
-                        </button>
-                        <button
-                          type="button"
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            togglePinned(receipt.id);
-                          }}
-                          className={`rounded-full border px-2 py-0.5 ${
-                            receipt.pinned
-                              ? "border-sky-300/50 text-sky-200"
-                              : "border-white/10 text-slate-400"
-                          }`}
-                        >
-                          ??
-                        </button>
-                      </div>
-                      <span>{receipt.paymentMethod}</span>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          toggleFavorite(receipt.id);
+                        }}
+                        className={`rounded-full border px-2 py-0.5 ${
+                          receipt.favorite
+                            ? "border-amber-300/50 text-amber-200"
+                            : "border-white/10 text-slate-400"
+                        }`}
+                      >
+                        ★
+                      </button>
+                      <button
+                        type="button"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          togglePinned(receipt.id);
+                        }}
+                        className={`rounded-full border px-2 py-0.5 ${
+                          receipt.pinned
+                            ? "border-sky-300/50 text-sky-200"
+                            : "border-white/10 text-slate-400"
+                        }`}
+                      >
+                        📌
+                      </button>
+                      <button
+                        type="button"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          deleteReceipt(receipt.id);
+                        }}
+                        className="rounded-full border border-white/10 px-2 py-0.5 text-slate-400 transition hover:border-rose-400/50 hover:text-rose-200"
+                      >
+                        🗑️
+                      </button>
                     </div>
+                    <span>{receipt.paymentMethod}</span>
+                  </div>
                   </button>
                 ))}
+                {filteredHistory.length > 0 && (
+                  <Link
+                    href="/history"
+                    className="flex w-full items-center justify-center gap-2 rounded-2xl border border-emerald-400/50 bg-emerald-400/10 px-6 py-4 text-sm font-semibold text-emerald-200 transition hover:bg-emerald-400/20"
+                  >
+                    View All History
+                    <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                    </svg>
+                  </Link>
+                )}
               </div>
             </div>
 
