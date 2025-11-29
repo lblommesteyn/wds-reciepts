@@ -17,7 +17,7 @@ import {
   formatDisplayDate,
 } from "@/lib/receipts";
 import { useDropzone } from "react-dropzone";
-import convertor from "@/app/api/ocr/convertor";
+//import convertor from "@/app/api/ocr/convertor"; //load too early, so take lazy load at line around 240
 import { generateCSV, downloadCSV } from "@/lib/csvExport";
 import { generateBulkCSV } from "@/lib/csvExport";
 
@@ -236,6 +236,7 @@ export default function Home() {
             : "Extracting text from receipt..."
         );
         console.log("Starting OCR processing...");
+        const { default: convertor } = await import("@/app/api/ocr/convertor"); //NEW LINE, import the convertor only when needed
         const ocrText = await convertor(file); // Pass file directly instead of URL
         console.log("OCR Text:", ocrText);
         
@@ -1076,73 +1077,72 @@ const handleDownloadAllCSV = () => {
                     Nothing yet—capture a receipt to populate history.
                   </p>
                 )}
-                {filteredHistory.map((receipt) => (
-                  <button
-                    key={receipt.id}
-                    type="button"
-                    onClick={() => setSelectedReceiptId(receipt.id)}
-                    className={`w-full rounded-2xl border px-4 py-3 text-left transition ${
-                      receipt.id === selectedReceiptId
-                        ? "border-emerald-300/60 bg-emerald-400/5"
-                        : "border-white/10 bg-black/30 hover:border-white/30"
-                    }`}
-                  >
-                    <div className="flex items-start justify-between text-sm">
-                      <div>
-                        <p className="text-white">
-                          {preferences.emoji && receipt.emojiTag
-                            ? `${receipt.emojiTag} `
-                            : ""}
-                          {receipt.store}
-                        </p>
-                        <p className="text-xs text-slate-400">
-                          {formatDisplayDate(receipt.date)}
-                        </p>
-                      </div>
-                      <div className="text-right">
-                        <p className="font-semibold text-white">
-                          {formatCurrency(receipt.total)}
-                        </p>
-                        <p className="text-xs text-slate-400">
-                          {receipt.category}
-                        </p>
-                      </div>
-                    </div>
-                    <div className="mt-3 flex items-center justify-between text-xs text-slate-400">
-                      <div className="flex items-center gap-2">
-                        <button
-                          type="button"
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            toggleFavorite(receipt.id);
-                          }}
-                          className={`rounded-full border px-2 py-0.5 ${
-                            receipt.favorite
-                              ? "border-amber-300/50 text-amber-200"
-                              : "border-white/10 text-slate-400"
+                {filteredHistory.map((receipt) => (// Improve the invalid structure of button inside button
+                      <div
+                          key={receipt.id}
+                          onClick={() => setSelectedReceiptId(receipt.id)}
+                          className={`w-full rounded-2xl border px-4 py-3 text-left transition cursor-pointer ${
+                              receipt.id === selectedReceiptId
+                                  ? "border-emerald-300/60 bg-emerald-400/5"
+                                  : "border-white/10 bg-black/30 hover:border-white/30"
                           }`}
-                        >
-                          ?
-                        </button>
-                        <button
-                          type="button"
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            togglePinned(receipt.id);
-                          }}
-                          className={`rounded-full border px-2 py-0.5 ${
-                            receipt.pinned
-                              ? "border-sky-300/50 text-sky-200"
-                              : "border-white/10 text-slate-400"
-                          }`}
-                        >
-                          ??
-                        </button>
+                      >
+                          <div className="flex items-start justify-between text-sm">
+                              <div>
+                                  <p className="text-white">
+                                      {preferences.emoji && receipt.emojiTag
+                                          ? `${receipt.emojiTag} `
+                                          : ""}
+                                      {receipt.store}
+                                  </p>
+                                  <p className="text-xs text-slate-400">
+                                      {formatDisplayDate(receipt.date)}
+                                  </p>
+                              </div>
+                              <div className="text-right">
+                                  <p className="font-semibold text-white">
+                                      {formatCurrency(receipt.total)}
+                                  </p>
+                                  <p className="text-xs text-slate-400">
+                                      {receipt.category}
+                                  </p>
+                              </div>
+                          </div>
+                          <div className="mt-3 flex items-center justify-between text-xs text-slate-400">
+                              <div className="flex items-center gap-2">
+                                  <button
+                                      type="button"
+                                      onClick={(event) => {
+                                          event.stopPropagation();
+                                          toggleFavorite(receipt.id);
+                                      }}
+                                      className={`rounded-full border px-2 py-0.5 ${
+                                          receipt.favorite
+                                              ? "border-amber-300/50 text-amber-200"
+                                              : "border-white/10 text-slate-400"
+                                      }`}
+                                  >
+                                      ?
+                                  </button>
+                                  <button
+                                      type="button"
+                                      onClick={(event) => {
+                                          event.stopPropagation();
+                                          togglePinned(receipt.id);
+                                      }}
+                                      className={`rounded-full border px-2 py-0.5 ${
+                                          receipt.pinned
+                                              ? "border-sky-300/50 text-sky-200"
+                                              : "border-white/10 text-slate-400"
+                                      }`}
+                                  >
+                                      ??
+                                  </button>
+                              </div>
+                              <span>{receipt.paymentMethod}</span>
+                          </div>
                       </div>
-                      <span>{receipt.paymentMethod}</span>
-                    </div>
-                  </button>
-                ))}
+                  ))}
               </div>
             </div>
 
